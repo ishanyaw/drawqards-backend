@@ -1,25 +1,18 @@
-from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
+from flask import Flask, request, jsonify, session
+from flask_cors import CORS
 import json
 import os
 
-app = FastAPI()
-
-# Allow CORS from anywhere (frontend will call this)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # in production, specify your domain
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app = Flask(__name__)
+app.secret_key = "supersecretkey"
+CORS(app)
 
 DB_FILE = 'db.json'
 
 def load_db():
     if not os.path.exists(DB_FILE):
         with open(DB_FILE, 'w') as f:
-            json.dump({'users': {}}, f)
+            json.dump({'users': {}, 'leaderboard': []}, f)
     with open(DB_FILE, 'r') as f:
         return json.load(f)
 
@@ -27,28 +20,50 @@ def save_db(data):
     with open(DB_FILE, 'w') as f:
         json.dump(data, f, indent=2)
 
-@app.post("/register")
-async def register(request: Request):
+@app.route('/')
+def home():
+    return jsonify({"message": "DrawQards Backend Working ✅"})
+
+@app.route('/register', methods=['POST'])
+def register():
     data = load_db()
-    body = await request.json()
-    username = body.get('username')
-    password = body.get('password')
+    username = request.json.get('username')
+    password = request.json.get('password')
+    if not username or not password:
+        return jsonify({'error': 'Missing username or password'}), 400
     if username in data['users']:
-        return {"error": "Username already exists"}
+        return jsonify({'error': 'Username taken'}), 400
     data['users'][username] = {
-        "password": password,
-        "coins": 100
+        'password': password,
+        'coins': 100,
+        'deck': {},
+        'xp': 0,
+        'level': 1
     }
     save_db(data)
-    return {"message": "Registered"}
+    return jsonify({'message': 'Registered successfully'})
 
-@app.post("/login")
-async def login(request: Request):
+@app.route('/login', methods=['POST'])
+def login():
     data = load_db()
-    body = await request.json()
-    username = body.get('username')
-    password = body.get('password')
+    username = request.json.get('username')
+    password = request.json.get('password')
     user = data['users'].get(username)
     if not user or user['password'] != password:
-        return {"error": "Invalid credentials"}
-    return {"message": "Login successful", "user": user}
+        return jsonify({'error': 'Invalid credentials'}), 401
+    session['username'] = username
+    return jsonify({'message': 'Login successful', 'user': user})
+
+@app.route('/deck', methods=['GET'])
+def get_deck():
+    username = session.get('username')
+    if not username:
+        return jsonify({'error': 'Not logged in'}), 401
+    data = load_db()
+    user = data['users'].get(username)
+    return jsonify({'deck': user.get('deck', {})})
+
+# Add your draw, sell, vault, etc. routes here too
+
+if __name__ == '__main__':
+    app.run()
